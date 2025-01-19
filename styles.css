@@ -1,0 +1,27 @@
+.parent-link-input-container {
+  margin-bottom: 12px;
+}
+
+.parent-link-input-container input {
+  width: 100%;
+  padding: 6px;
+}
+
+.parent-link-suggestion-container {
+  position: absolute;
+  width: 100%;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  z-index: 100;
+}
+
+.parent-link-suggestion {
+  padding: 6px;
+  cursor: pointer;
+}
+
+.parent-link-suggestion:hover {
+  background: var(--background-modifier-hover);
+} 
