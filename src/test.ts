@@ -181,4 +181,56 @@ describe('ParentLink Plugin', () => {
             expect(note.frontmatter.parent).toBeUndefined();
         });
     });
+
+    describe('Allowed Paths', () => {
+        test('Respects allowed paths setting', async () => {
+            // Setup
+            const allowedFolder = await mockVault.createFolder('Allowed');
+            const disallowedFolder = await mockVault.createFolder('Disallowed');
+            
+            // Create notes in both folders
+            const allowedNote = await mockVault.createMarkdownFile('Allowed/Note.md');
+            const disallowedNote = await mockVault.createMarkdownFile('Disallowed/Note.md');
+            
+            // Create folder notes
+            const allowedFolderNote = await mockVault.createMarkdownFile('Allowed/Allowed.md');
+            const disallowedFolderNote = await mockVault.createMarkdownFile('Disallowed/Disallowed.md');
+            
+            // Set parent relationships
+            allowedNote.parent = allowedFolder;
+            disallowedNote.parent = disallowedFolder;
+            allowedFolderNote.parent = allowedFolder;
+            disallowedFolderNote.parent = disallowedFolder;
+
+            // Configure plugin to only allow specific path
+            plugin.settings.allowedPaths = ['Allowed'];
+            await plugin.saveSettings();
+
+            // Test allowed path
+            await plugin.updateParentLink(allowedNote as unknown as TFile);
+            expect(allowedNote.frontmatter.parent).toBe("[[Allowed]]");
+
+            // Test disallowed path
+            await plugin.updateParentLink(disallowedNote as unknown as TFile);
+            expect(disallowedNote.frontmatter.parent).toBeUndefined();
+        });
+
+        test('Empty allowed paths allows all paths', async () => {
+            // Setup
+            const folder = await mockVault.createFolder('Test');
+            const note = await mockVault.createMarkdownFile('Test/Note.md');
+            const folderNote = await mockVault.createMarkdownFile('Test/Test.md');
+            
+            note.parent = folder;
+            folderNote.parent = folder;
+
+            // Ensure allowed paths is empty
+            plugin.settings.allowedPaths = [];
+            await plugin.saveSettings();
+
+            // Test that note gets updated
+            await plugin.updateParentLink(note as unknown as TFile);
+            expect(note.frontmatter.parent).toBe("[[Test]]");
+        });
+    });
 }); 

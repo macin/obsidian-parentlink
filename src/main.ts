@@ -15,11 +15,13 @@ interface ParentLinkSettings {
   enabled: boolean;
   detailedLogs: boolean;
   lastRefreshedFolder?: string;  // Add this to store last used folder
+  allowedPaths: string[];  // Add this for path filtering
 }
 
 const DEFAULT_SETTINGS: ParentLinkSettings = {
   enabled: true,
   detailedLogs: false,
+  allowedPaths: [],  // Default to empty array (all paths allowed)
 };
 
 export default class ParentLink extends Plugin {
@@ -121,6 +123,22 @@ export default class ParentLink extends Plugin {
 
   async updateParentLink(file: TFile) {
     try {
+      // Check if path is allowed
+      if (this.settings.allowedPaths.length > 0) {
+        const isAllowed = this.settings.allowedPaths.some(allowedPath => 
+          file.path.startsWith(allowedPath) || 
+          // Also check parent folder for folder notes
+          (file.parent?.path || '').startsWith(allowedPath)
+        );
+        
+        if (!isAllowed) {
+          if (this.settings.detailedLogs) {
+            console.log(`${file.path} - skipped (not in allowed paths)`);
+          }
+          return;
+        }
+      }
+
       // Get parent folder
       const parentFolder = file.parent;
       if (!parentFolder) {
@@ -253,6 +271,7 @@ class ParentLinkSettingTab extends PluginSettingTab {
   plugin: ParentLink;
   private folderInputEl: HTMLInputElement;
   private suggestionContainer: HTMLDivElement;
+  private allowedPathsContainer: HTMLDivElement;
 
   constructor(app: App, plugin: ParentLink) {
     super(app, plugin);
@@ -264,7 +283,117 @@ class ParentLinkSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.createEl("h2", {text: "Parent Link Settings"});
 
-    // First setting
+    // Basic settings (enabled and logs)
+    this.addBasicSettings(containerEl);
+    
+    // Folder refresh setting
+    this.addFolderRefreshSetting(containerEl);
+
+    // Allowed paths section
+    containerEl.createEl("h3", {text: "Allowed Paths"});
+    containerEl.createEl("p", {
+      text: "Specify paths where the plugin should work. Leave empty to allow all paths.",
+      cls: "setting-item-description"
+    });
+
+    // Container for allowed paths
+    this.allowedPathsContainer = containerEl.createDiv({ cls: "parent-link-allowed-paths" });
+
+    // Add button for new path
+    const addButton = new Setting(containerEl)
+      .addButton(button => button
+        .setButtonText("Add Path")
+        .setClass("mod-setting-button")
+        .onClick(() => {
+          this.addAllowedPathInput();
+        }));
+
+    // Add existing paths
+    if (this.plugin.settings.allowedPaths.length === 0) {
+      this.addAllowedPathInput(); // Add one empty input by default
+    } else {
+      this.plugin.settings.allowedPaths.forEach(path => {
+        this.addAllowedPathInput(path);
+      });
+    }
+
+    // Update styles
+    containerEl.createEl("style", {
+      text: `
+        .parent-link-input-container {
+          position: relative;
+          flex: 1;
+        }
+        .parent-link-input-container input {
+          width: 100%;
+          padding: 6px 12px;
+          height: var(--input-height);
+          background: var(--background-modifier-form-field);
+          border: var(--input-border-width) solid var(--background-modifier-border);
+          color: var(--text-normal);
+          border-radius: var(--radius-s);
+          font-size: var(--font-ui-small);
+        }
+        .parent-link-suggestion-container {
+          position: absolute;
+          width: 100%;
+          max-height: 200px;
+          overflow-y: auto;
+          background: var(--background-primary);
+          border: 1px solid var(--background-modifier-border);
+          z-index: 100;
+          border-radius: var(--radius-s);
+          box-shadow: var(--shadow-s);
+          margin-top: 4px;
+        }
+        .parent-link-suggestion {
+          padding: 8px 12px;
+          cursor: pointer;
+          font-size: var(--font-ui-small);
+        }
+        .parent-link-suggestion:hover,
+        .parent-link-suggestion.is-selected {
+          background: var(--background-modifier-hover);
+          color: var(--text-accent);
+        }
+        .parent-link-allowed-path {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 8px;
+          width: 100%;
+          padding: 0 20px;
+        }
+        .parent-link-remove-button {
+          padding: 0;
+          background: var(--background-modifier-error);
+          border: none;
+          color: var(--text-on-accent);
+          border-radius: var(--radius-s);
+          cursor: pointer;
+          height: var(--input-height);
+          width: var(--input-height);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 18px;
+        }
+        .parent-link-remove-button:hover {
+          background: var(--background-modifier-error-hover);
+        }
+        .parent-link-allowed-paths {
+          width: 100%;
+          margin-bottom: 12px;
+        }
+        .setting-item.mod-setting-button {
+          padding-left: 20px;
+          padding-right: 20px;
+        }
+      `
+    });
+  }
+
+  private addBasicSettings(containerEl: HTMLElement) {
     new Setting(containerEl)
       .setName("Enable automatic parent linking")
       .setDesc("Automatically add parent links to files when they are created or moved")
@@ -273,17 +402,8 @@ class ParentLinkSettingTab extends PluginSettingTab {
         .onChange(async (value) => {
           this.plugin.settings.enabled = value;
           await this.plugin.saveSettings();
-          
-          if (value && this.plugin.settings.detailedLogs) {
-            console.log("----------------------");
-            console.log("ParentLink plugin enabled");
-            console.log("----------------------");
-          }
         }));
 
-    containerEl.createEl("br");
-
-    // Second setting
     new Setting(containerEl)
       .setName("Enable detailed logs")
       .setDesc("Show additional processing details in the console")
@@ -293,10 +413,139 @@ class ParentLinkSettingTab extends PluginSettingTab {
           this.plugin.settings.detailedLogs = value;
           await this.plugin.saveSettings();
         }));
+  }
 
-    containerEl.createEl("br");
+  private addAllowedPathInput(initialValue: string = "") {
+    const container = this.allowedPathsContainer.createDiv({ cls: "parent-link-allowed-path" });
+    
+    // Create input with autocomplete
+    const inputContainer = container.createDiv({ cls: "parent-link-input-container" });
+    const input = inputContainer.createEl("input", {
+      type: "text",
+      value: initialValue,
+      placeholder: "Type folder path..."
+    });
+    
+    // Create suggestions container
+    const suggestionContainer = inputContainer.createDiv({ 
+      cls: "parent-link-suggestion-container" 
+    });
+    suggestionContainer.style.display = "none";
 
-    // Folder refresh setting
+    // Add remove button
+    const removeButton = container.createEl("button", {
+      text: "×",
+      title: "Remove path",
+      cls: "parent-link-remove-button"
+    });
+    removeButton.onclick = () => {
+      container.remove();
+      this.saveAllowedPaths();
+    };
+
+    let selectedIndex = -1;
+    const handleKeydown = (event: KeyboardEvent) => {
+      const suggestions = suggestionContainer.children;
+      if (suggestions.length === 0) return;
+
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        
+        // Update selected index
+        if (event.key === "ArrowDown") {
+          selectedIndex = (selectedIndex + 1) % suggestions.length;
+        } else {
+          selectedIndex = selectedIndex <= 0 ? suggestions.length - 1 : selectedIndex - 1;
+        }
+
+        // Update visual selection
+        Array.from(suggestions).forEach((el, i) => {
+          el.classList.toggle("is-selected", i === selectedIndex);
+        });
+      } else if (event.key === "Enter" && selectedIndex >= 0) {
+        event.preventDefault();
+        const selectedSuggestion = suggestions[selectedIndex] as HTMLElement;
+        input.value = selectedSuggestion.textContent || "";
+        suggestionContainer.style.display = "none";
+        selectedIndex = -1;
+        this.saveAllowedPaths();
+      } else if (event.key === "Escape") {
+        suggestionContainer.style.display = "none";
+        selectedIndex = -1;
+      }
+    };
+
+    // Add input handler for autocomplete
+    input.addEventListener("input", () => {
+      selectedIndex = -1;  // Reset selection on new input
+      this.updatePathSuggestions(input, suggestionContainer);
+      this.saveAllowedPaths();
+    });
+
+    input.addEventListener("focus", () => {
+      this.updatePathSuggestions(input, suggestionContainer);
+    });
+
+    input.addEventListener("blur", () => {
+      // Delay hiding suggestions to allow for clicks
+      setTimeout(() => {
+        suggestionContainer.style.display = "none";
+        selectedIndex = -1;
+      }, 200);
+    });
+
+    input.addEventListener("keydown", handleKeydown);
+  }
+
+  private updatePathSuggestions(input: HTMLInputElement, suggestionContainer: HTMLElement) {
+    const inputValue = input.value.toLowerCase();
+    const folders = this.getAllFolders();
+    const suggestions = folders.filter(f => 
+      f.path.toLowerCase().contains(inputValue)
+    );
+
+    suggestionContainer.empty();
+    
+    if (suggestions.length > 0 && inputValue) {
+      suggestionContainer.style.display = "block";
+      suggestions.forEach(folder => {
+        const suggestionEl = suggestionContainer.createDiv({
+          cls: "parent-link-suggestion",
+          text: folder.path
+        });
+        suggestionEl.onmousedown = () => {
+          input.value = folder.path;
+          suggestionContainer.style.display = "none";
+          this.saveAllowedPaths();
+        };
+      });
+    } else {
+      suggestionContainer.style.display = "none";
+    }
+  }
+
+  private saveAllowedPaths() {
+    const inputs = this.allowedPathsContainer.querySelectorAll("input");
+    const paths = Array.from(inputs)
+      .map(input => input.value.trim())
+      .filter(path => path.length > 0);
+    
+    this.plugin.settings.allowedPaths = paths;
+    this.plugin.saveSettings();
+  }
+
+  private getAllFolders(): TFolder[] {
+    const folders: TFolder[] = [];
+    const files = this.app.vault.getAllLoadedFiles();
+    files.forEach(file => {
+      if (file instanceof TFolder) {
+        folders.push(file);
+      }
+    });
+    return folders;
+  }
+
+  private addFolderRefreshSetting(containerEl: HTMLElement) {
     const folderSetting = new Setting(containerEl)
       .setName("Refresh folder parents")
       .setDesc("Type folder path to refresh parent links for all files in that folder");
@@ -342,80 +591,18 @@ class ParentLinkSettingTab extends PluginSettingTab {
       }));
 
     // Add input handler for autocomplete
-    this.folderInputEl.addEventListener("input", this.updateSuggestions.bind(this));
-    this.folderInputEl.addEventListener("focus", this.updateSuggestions.bind(this));
+    this.folderInputEl.addEventListener("input", () => {
+      this.updatePathSuggestions(this.folderInputEl, this.suggestionContainer);
+    });
+    this.folderInputEl.addEventListener("focus", () => {
+      this.updatePathSuggestions(this.folderInputEl, this.suggestionContainer);
+    });
     this.folderInputEl.addEventListener("blur", () => {
       // Delay hiding suggestions to allow for clicks
       setTimeout(() => {
         this.suggestionContainer.style.display = "none";
       }, 200);
     });
-
-    // Add styles
-    containerEl.createEl("style", {
-      text: `
-        .parent-link-input-container {
-          position: relative;
-          margin-bottom: 12px;
-        }
-        .parent-link-input-container input {
-          width: 100%;
-          padding: 6px;
-        }
-        .parent-link-suggestion-container {
-          position: absolute;
-          width: 100%;
-          max-height: 200px;
-          overflow-y: auto;
-          background: var(--background-primary);
-          border: 1px solid var(--background-modifier-border);
-          z-index: 100;
-        }
-        .parent-link-suggestion {
-          padding: 6px;
-          cursor: pointer;
-        }
-        .parent-link-suggestion:hover {
-          background: var(--background-modifier-hover);
-        }
-      `
-    });
-  }
-
-  updateSuggestions() {
-    const input = this.folderInputEl.value.toLowerCase();
-    const folders = this.getAllFolders();
-    const suggestions = folders.filter(f => 
-      f.path.toLowerCase().contains(input)
-    );
-
-    this.suggestionContainer.empty();
-    
-    if (suggestions.length > 0 && input) {
-      this.suggestionContainer.style.display = "block";
-      suggestions.forEach(folder => {
-        const suggestionEl = this.suggestionContainer.createDiv({
-          cls: "parent-link-suggestion",
-          text: folder.path
-        });
-        suggestionEl.onmousedown = () => {
-          this.folderInputEl.value = folder.path;
-          this.suggestionContainer.style.display = "none";
-        };
-      });
-    } else {
-      this.suggestionContainer.style.display = "none";
-    }
-  }
-
-  getAllFolders(): TFolder[] {
-    const folders: TFolder[] = [];
-    const files = this.app.vault.getAllLoadedFiles();
-    files.forEach(file => {
-      if (file instanceof TFolder) {
-        folders.push(file);
-      }
-    });
-    return folders;
   }
 }
+
