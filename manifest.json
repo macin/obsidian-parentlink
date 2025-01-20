@@ -1,11 +1,10 @@
 {
   "id": "parentlink",
   "name": "ParentLink",
-  "description": "Keeps track of the parent note based on the folder structure.",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "Automatically manages parent-child relationships between notes based on folder structure",
   "author": "macinr",
   "authorUrl": "https://github.com/macin",
-
-  "minAppVersion": "0.11.0",
-  "version": "1.0.0",
   "isDesktopOnly": false
 }
