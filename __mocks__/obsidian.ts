@@ -47,7 +47,8 @@ export interface PluginManifest {
 }
 
 export interface EventRef {
-    unsubscribe: () => void;
+    id: string;
+    offCallback: () => void;
 }
 
 export class TAbstractFile {
@@ -128,17 +129,18 @@ interface VaultEvents {
 }
 
 export class MockVault implements Partial<Vault> {
-    private files: Map<string, MockFile>;
-    private folders: Map<string, MockFolder>;
+    private files: Map<string, MockFile> = new Map();
+    private folders: Map<string, MockFolder> = new Map();
     private root: MockFolder;
-    private eventHandlers: Map<VaultEventType, ((file: TAbstractFile, ...args: any[]) => any)[]>;
+    private eventHandlers: Map<string, Function[]> = new Map();
 
     constructor() {
-        this.files = new Map();
-        this.folders = new Map();
         this.root = new MockFolder("", this as unknown as Vault);
         this.root.isRoot = () => true;
-        this.eventHandlers = new Map();
+        this.eventHandlers.set('create', []);
+        this.eventHandlers.set('modify', []);
+        this.eventHandlers.set('delete', []);
+        this.eventHandlers.set('rename', []);
     }
 
     getRoot(): MockFolder {
@@ -191,22 +193,20 @@ export class MockVault implements Partial<Vault> {
         }
     }
 
-    on<T extends keyof VaultEvents>(
-        name: T,
-        callback: VaultEvents[T],
-        ctx?: any
-    ): EventRef {
-        if (!this.eventHandlers.has(name)) {
-            this.eventHandlers.set(name, []);
+    on(name: string, callback: Function): EventRef {
+        const handlers = this.eventHandlers.get(name);
+        if (handlers) {
+            handlers.push(callback);
         }
-        this.eventHandlers.get(name).push(callback);
-
         return {
-            unsubscribe: () => {
+            id: Math.random().toString(),
+            offCallback: () => {
                 const handlers = this.eventHandlers.get(name);
-                const index = handlers.indexOf(callback);
-                if (index > -1) {
-                    handlers.splice(index, 1);
+                if (handlers) {
+                    const index = handlers.indexOf(callback);
+                    if (index > -1) {
+                        handlers.splice(index, 1);
+                    }
                 }
             }
         };

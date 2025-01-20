@@ -93,7 +93,7 @@ export default class ParentLink extends Plugin {
         // Only process if this is a folder note and the frontmatter doesn't have a parent field
         // or if the parent field exists but is empty/invalid
         const isFolderNote = file.basename === file.parent?.name;
-        if (isFolderNote && (!frontmatter?.parent || frontmatter.parent === '')) {
+        if (isFolderNote && (!frontmatter?.parent || frontmatter.parent === '') && file.parent) {
           // Update all files in the folder
           if (this.settings.detailedLogs) {
             console.log(`Folder note modified externally: ${file.path}, updating children`);
@@ -172,7 +172,7 @@ export default class ParentLink extends Plugin {
               f.basename === grandparentFolder.name && 
               f.parent?.path === grandparentFolder.path &&
               f !== file
-            );
+            ) || null;
         }
       } else {
         // For regular notes, look for a note matching the parent folder
@@ -183,7 +183,7 @@ export default class ParentLink extends Plugin {
             f.basename === parentFolder.name && 
             f.parent?.path === parentFolder.path &&
             f !== file
-          );
+          ) || null;
       }
 
       if (!parentNote) {
